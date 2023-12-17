@@ -1,0 +1,610 @@
+---
+title: "Projekt - Szeregi czasowe"
+author: "Maja Dulniak"
+date: "2023-01-28"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+```
+
+```{r}
+library(tinytex)
+library(tseries)
+library(tidyverse)
+library(flextable)
+library(rstatix)
+library(corrplot)
+library(forecast)
+library(randtests)
+library(nortest)
+library(lmtest)
+```
+
+*W projekcie przeprowadziłam analizę dwóch kursów walut : brytyjskiej oraz chińskiej.*
+
+Żródło danych :
+
+<https://finance.yahoo.com/quote/CNYUSD=X?p=CNYUSD=X&.tsrc=fin-srch>
+
+<https://finance.yahoo.com/quote/GBPUSD%3DX?p=GBPUSD%3DX>
+
+# Kurs waluty brytyjskiej GBP
+
+**1.Opisać oraz wyznaczyć podstawowe statystyki. Narysować histogram oraz "box-plot". Wyznaczyć wartości funkcji autokorelacji dla t = 0, 1, . . . , 50.**
+
+```{r}
+GBP<- get.hist.quote(instrument = "GBPUSD=X", provider = "yahoo",
+                         quote = "Close", start = "2022-01-03",
+                         end = "2022-12-30")
+GBP <- as.numeric(GBP)
+```
+
+```{r}
+plot(GBP,  col=5, main="Cena kursu waluty brytyjskiej", type="l")
+```
+
+```{r}
+GBP <- na.omit(GBP)
+```
+
+## Statystyki opisowe
+
+-   Wartość maksymalna
+
+```{r}
+max(GBP)
+```
+
+-   Wartość minimalna
+
+```{r}
+min(GBP)
+```
+
+-   Średnia
+
+```{r}
+mean(GBP)
+```
+
+-   Mediana
+
+```{r}
+median(GBP)
+```
+
+-   Kwantyl dolny
+
+```{r}
+quantile(GBP,0.25)
+```
+
+-   Kwantyl górny
+
+```{r}
+quantile(GBP,0.75)
+```
+
+-   Odchylenie standardowe
+
+```{r}
+sd(GBP)
+```
+
+-   Wariancja
+
+```{r}
+var(GBP)
+```
+
+## Histogram
+
+```{r}
+hist(GBP, 
+     main = "Ceny kursu waluty GBP", 
+     col = "green", 
+     border = "black",
+     xlim = c(0,2),
+     breaks = 10, 
+     xlab="", 
+     ylab="Cena",
+     prob=FALSE) 
+```
+
+## Wykres ramka-wąsy
+
+```{r}
+boxplot(GBP,
+        main = "Ceny kursu waluty GBP",
+        col = "green",
+        border = "black",
+        horizontal = TRUE) 
+```
+
+## Funkcja autokorelacji
+
+Wyznaczenie poszczególnych wartości funkcji autokorelacji dla t = 0,1,...,50.
+
+```{r}
+wsp_a <- acf(GBP, pl=FALSE, lag= 50)
+plot(wsp_a)
+
+```
+
+Autokorelacja dla t=0 jest równa 1.
+
+Dla t=50 jest równa 0.382.
+
+Im większy moduł ze współczynnika autokorelacji, tym silniejszy jest związek między elementami szeregu czasowego podstawowego i przesuniętego w czasie o t.
+
+**2.Wyznaczyć dekompozycję Holta-Wintersa. Przedstawić wykres. Dokonać predykcji na kolejne 10 notowań.**
+
+```{r}
+h_GBP <- ts(GBP,frequency=1)
+plot(h_GBP, main="Funkcja Time Series")
+```
+
+Nie występuje sezonowość na wykresie, dlatego skorzystamy z metody dekompozycji Holta-Wintersa.
+
+## Dekompozycja Holta-Wintersa
+
+```{r}
+dekompozycja <- HoltWinters(h_GBP,gamma = FALSE)
+plot(dekompozycja, lwd=2, main = "Dekompozycja Holta-Wintersa", xlab="")
+
+trend <- dekompozycja$fitted[,1]
+plot(trend, col="black", xlab=" ", ylab=" ", main="Trend")
+```
+
+## Predykcja
+
+```{r}
+p <- predict(dekompozycja, n.ahead = 10, prediction.interval = TRUE, level = 0.9)
+
+plot(dekompozycja, p, xlim = c(150,270), ylim = c(1.1,1.3))
+```
+
+Czerwona linia na wykresie oznacza wartość oczekiwaną.
+
+Niebieskie linie - pierwsza i trzecia wartość przy poziomie ufności 0.9
+
+```{r}
+plot(forecast(dekompozycja, level = c(95), h=10),xlim = c(150,270), ylim = c(1.1,1.3), main = "Predykcja Holt- Winters")
+```
+
+Szary pas - zakres zmienności tych obserwacji na przestrzeni 10 lat.
+
+**3.Trend występujący w szeregu czasowym dopasować wielomianem odpowiedniego stopnia. Uzasadnić wybór stopnia wielomianu. Przedstawić wykres zachowania analizowanej cechy oraz dopasowanie uzyskane za pomocą regresji wielomianowej. Dokonać analizy szeregu reszt (test niezależności, normalności reszt, jednorodności wariancji). Zinterpretować wyniki.**
+
+```{r}
+t <- 1:length(GBP)
+aic_m <- AIC(lm(GBP~t))
+
+for(j in 2:10){
+macierz <- NULL
+for (k in 1:j) {
+macierz <- cbind(macierz, t^k)
+}
+colnames(macierz) <- paste0("t^", 1:j)
+mod <- lm(GBP~macierz)
+aic_m <- c(aic_m, AIC(mod))
+}
+
+plot(aic_m)
+```
+
+Wybieramy wielomian stopnia 7.
+
+```{r}
+t <- 1:length(trend)
+
+mod7 <- lm(trend~t + I(t^2) + I(t^3) + I(t^4) + I(t^5)+ I(t^6)+I(t^7)) 
+wsp7 <- coef(mod7)
+predict7 <- wsp7[1]+wsp7[2]*t+wsp7[3]*t^2+wsp7[4]*t^3+wsp7[5]*t^4+wsp7[6]*t^5+wsp7[7]*t^6+wsp7[8]*t^7
+predict77 <- mod7$fitted.values 
+max(abs(wsp7[1]+wsp7[2]*t+wsp7[3]*t^2+wsp7[4]*t^3+wsp7[5]*t^4+wsp7[6]*t^5+wsp7[7]*t^6+wsp7[8]*t^6 - mod7$fitted.values))
+```
+
+```{r}
+plot(t,trend, col = 4, main = "GBP", type = "l")
+lines(t, predict77, col = 2, lwd = 2) 
+```
+
+-   Test niezależności
+
+```{r}
+library(tidyverse)
+model1 <- lm(trend~t + I(t^2) + I(t^3) + I(t^4) + I(t^5) + I(t^6) + I(t^7))
+reszty <- model1$residuals
+
+par(mfrow=c(1,2))
+plot(t,trend, type="l", main="GBP")
+lines(t, model1$fitted.values, col=2, lwd=1.5)
+
+plot(reszty, type="l", main="reszty")
+#abline(h=0, col=2, lwd=1.5)
+par(mfrow=c(1,1))
+
+runs.test(reszty, alternative = "two.sided", threshold=0, plot=T)
+
+Box.test(reszty, lag=5, type="Ljung") #występuje korelacja
+Box.test(reszty, lag=10, type="Ljung") #występuje korelacja
+
+plot(ecdf(reszty))
+```
+
+Odrzucamy H0. Reszty modelu są zależne.
+
+-   Test normalności reszt
+
+```{r}
+library(olsrr)
+library(stats)
+ols_test_normality(reszty)
+```
+
+Testy Andersona i Shapiro-Wilka potwierdzają,że odrzucamy hipotezę zerową, czyli nie jest to rozkład normalny. Więc występuje wewnętrzna zależność.
+
+Badanie jednorodności nie jest konieczne. Przypuszczamy, że wariancje są jednorodne.
+
+**4.W zależności od otrzymanych wyników w p. 3, dokonać identyfikacji szeregu reszt (np.ciąg niezależnych zmiennych losowych, ARIMA, GARCH).**
+
+```{r}
+acf(reszty) 
+pacf(reszty)
+tsdisplay(reszty, col=2, lwd=2, las=1)
+```
+
+W badanych wartościach występuje trend , ponieważ funkcja autokorelacji maleje.
+
+Różnicowanie na resztach:
+
+```{r}
+acf(diff(reszty))
+```
+
+## Model ARIMA
+
+```{r}
+arima1 <- auto.arima(diff(reszty), ic="aic", trace = TRUE, seasonal=F)
+arima1 <- auto.arima(diff(reszty))
+arima1
+
+#arima1$model1$phi
+#arima1$model1$theta
+#arima1$model1$delta
+```
+
+5.Zbadać stacjonarność szeregu badanej cechy. Dokonać identyfikacji za pomocą modeli.
+
+Stacjonarność szeregu
+
+```{r}
+adf.test(GBP)
+kpss.test(GBP) 
+pp.test(GBP) 
+
+acf(GBP)
+```
+
+Na podstawie testów widzimy ,że szereg nie jest stacjonarny.
+
+```{r}
+adf.test(diff(GBP)) 
+kpss.test(diff(GBP)) 
+pp.test(diff(GBP)) 
+
+plot(GBP, type = "l")
+plot(diff(GBP), type = "l")
+
+acf(diff(GBP))
+pacf(diff(GBP))
+```
+
+Identyfikacja za pomocą modeli klasy ARIMA.
+
+```{r}
+auto.arima(diff(GBP), ic="aic", trace = TRUE, seasonal=F)
+
+a <- auto.arima(diff(GBP))
+a
+
+#a$model1$phi 
+#a$model1$theta 
+#a$model1$Delta
+
+auto.arima(diff(GBP))
+arima(diff(GBP), order = c(0,0,0))
+```
+
+# Kurs waluty chińskiej CNY
+
+```{r}
+CNY<- get.hist.quote(instrument = "CNYUSD=X", provider = "yahoo", quote = "Close", start = "2022-01-03", end = "2022-12-30")
+CNY <- as.numeric(CNY)
+
+plot(CNY,  col=5, main="Cena kursu waluty chińskiej", type="l")
+CNY<-na.omit(CNY)
+```
+
+## Statystyki opisowe
+
+-   wartość maksymalna
+
+```{r}
+max(CNY)
+```
+
+-   wartość minimalna
+
+```{r}
+min(CNY)
+```
+
+-   Średnia
+
+```{r}
+mean(CNY)
+```
+
+-   Mediana
+
+```{r}
+median(CNY)
+```
+
+-   Kwantyl dolny
+
+```{r}
+quantile(CNY, 0.25)
+```
+
+-   Kwantyl górny
+
+```{r}
+quantile(CNY, 0.75)
+```
+
+-   Odchylenie standardowe
+
+```{r}
+sd(CNY)
+```
+
+-   Wariancja
+
+```{r}
+var(CNY)
+```
+
+## Histogram
+
+```{r}
+hist(CNY, 
+     main = "Ceny kursu waluty CNY", 
+     col = "blue", 
+     border = "black",
+     xlim = c(0.1,0.2),
+     breaks = 10, 
+     xlab="", 
+     ylab="Cena",
+     prob=FALSE) 
+```
+
+## Wykres ramka-wąsy
+
+```{r}
+boxplot(CNY,
+        main = "Ceny kursu waluty CNY",
+        col = "blue",
+        border = "black",
+        horizontal = TRUE) 
+```
+
+## Funkcja autokorelacji
+
+```{r}
+wsp_a2<-acf(CNY, pl=FALSE, lag= 50)
+plot(wsp_a2)
+acf(CNY, pl=FALSE, lag= 50)
+```
+
+Dla t=0 autokorelacja jest równa 1. Dla t=2 to 0.993. Natomiast dla t=50 autokorelacja jest równa 0.396.
+
+## Dekompozycja
+
+```{r}
+h_CNY <- ts(CNY,frequency=1)
+plot(h_CNY, main="Funkcja Time Series")
+```
+
+Nie występuje sezonowość.
+
+Dekompozycja Holta-Wintersa.
+
+```{r}
+dekompozycja2 <- HoltWinters(h_CNY,gamma = FALSE)
+plot(dekompozycja2, lwd=2, main = "Dekompozycja Holta-Wintersa", xlab="")
+```
+
+```{r}
+trend2<-dekompozycja2$fitted[,1]
+plot(trend2, col="blue", xlab=" ", ylab=" ", main="Trend")
+```
+
+## Predykcja
+
+```{r}
+p2 <- predict(dekompozycja2, n.ahead = 10, prediction.interval = TRUE, level = 0.9)
+
+plot(dekompozycja2, p2, xlim = c(150,270), ylim = c(0.130,0.160))
+```
+
+```{r}
+plot(forecast(dekompozycja2, level = c(95), h=10),xlim = c(150,270), ylim = c(0.130,0.160), main = "Predykcja Holt- Winters")
+```
+
+## Trend
+
+```{r}
+t1 <- 1:length(CNY)
+aic_m1 <- AIC(lm(CNY~t1))
+
+for(j in 2:10){
+macierz1 <- NULL
+for (k in 1:j) {
+macierz1 <- cbind(macierz1, t1^k)
+}
+colnames(macierz1) <- paste0("t^", 1:j)
+mod1 <- lm(CNY~macierz1)
+aic_m1 <- c(aic_m1, AIC(mod1))
+}
+
+plot(aic_m1)
+```
+
+Wybieramy wielomian stopnia 7.
+
+```{r}
+t <- 1:length(trend2)
+
+mod71 <- lm(trend2~t + I(t^2) + I(t^3) + I(t^4) + I(t^5)+ I(t^6)+I(t^7)) 
+wsp71 <- coef(mod71)
+predict71 <- wsp71[1]+wsp71[2]*t+wsp71[3]*t^2+wsp71[4]*t^3+wsp71[5]*t^4+wsp71[6]*t^5+wsp71[7]*t^6+wsp71[8]*t^7
+predict771 <- mod71$fitted.values 
+max(abs(wsp71[1]+wsp71[2]*t+wsp71[3]*t^2+wsp71[4]*t^3+wsp71[5]*t^4+wsp71[6]*t^5+wsp71[7]*t^6+wsp71[8]*t^6 - mod71$fitted.values))
+```
+
+```{r}
+plot(t,trend2, col = 4, main = "CNY", type = "l")
+lines(t, predict71, col = 2, lwd = 2) 
+```
+
+-   Test niezależności
+
+```{r}
+model2 <- lm(trend2~t + I(t^2) + I(t^3) + I(t^4) + I(t^5) + I(t^6) + I(t^7))
+reszty2 <- model2$residuals
+
+par(mfrow=c(1,2))
+plot(t,trend2, type="l", main="CNY")
+lines(t, model2$fitted.values, col=2, lwd=1.5)
+
+plot(reszty2, type="l", main="reszty")
+```
+
+```{r}
+runs.test(reszty2, alternative = "two.sided", threshold=0, plot=T)
+```
+
+```{r}
+Box.test(reszty2, lag=5, type="Ljung")
+Box.test(reszty2, lag=10, type="Ljung")
+plot(ecdf(reszty2))
+```
+
+Odrzucamy hipotezę zerową o tym ,że reszty są niezależne.
+
+-   Test normalności reszt
+
+```{r}
+ols_test_normality(reszty2)
+```
+
+Testy Andersona i Shapiro-Wilka potwierdzają,że odrzucamy hipotezę zerową, czyli nie jest to rozkład normalny. Występuje wewnętrzna zależność.
+
+Test jednorodności wariancji
+
+```{r}
+bptest(model2) #odrzucamy H0
+```
+
+```{r}
+acf(reszty2)
+```
+
+```{r}
+pacf(reszty2)
+```
+
+```{r}
+tsdisplay(reszty2, col=2, lwd=2, las=1)
+```
+
+Funkcja autokorelacji maleje, występuje trend.
+
+Różnicowanie na resztach:
+
+```{r}
+acf(diff(reszty2))
+```
+
+## Model ARIMA
+
+```{r}
+arima2 <- auto.arima(diff(reszty2), ic="aic", trace = TRUE, seasonal=F)
+```
+
+```{r}
+arima2 <- auto.arima(diff(reszty2))
+arima2
+```
+
+## Stacjonarność szeregu
+
+```{r}
+adf.test(CNY)
+```
+
+```{r}
+kpss.test(CNY)
+```
+
+```{r}
+pp.test(CNY)
+```
+
+```{r}
+acf(CNY)
+```
+
+Nie ma podstaw do odrzucenia hipotezy zerowej. Szereg nie jest stacjonarny.
+
+```{r}
+adf.test(diff(CNY))
+kpss.test(diff(CNY)) 
+pp.test(diff(CNY)) 
+
+```
+
+```{r}
+plot(CNY, type = "l")
+plot(diff(CNY), type = "l")
+```
+
+```{r}
+acf(diff(CNY))
+```
+
+```{r}
+pacf(diff(CNY))
+```
+
+Identyfikacja za pomocą klasy ARIMA
+
+```{r}
+auto.arima(diff(CNY), ic="aic", trace = TRUE, seasonal=F)
+```
+
+```{r}
+a2 <- auto.arima(diff(CNY))
+a2
+```
+
+```{r}
+arima(diff(CNY), order = c(0,0,0))
+```
